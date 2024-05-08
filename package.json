@@ -1,0 +1,20 @@
+{
+  "name": "rekon-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "RekonAccounts.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "tbukfrc",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ky": "^1.2.4",
+    "nodemailer": "^6.9.13",
+    "pg": "^8.11.5"
+  }
+}
