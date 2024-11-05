@@ -25,7 +25,7 @@ process.on('uncaughtException', (err) => {
 });
 
 setInterval(async () => {
-    const gatewayResponse = await ky.put(`http://127.0.0.1:8234/groups/status/heartbeat?secret=${process.env.HEARTBEAT_SECRET}`).json();
+    const gatewayResponse = await ky.put(`http://127.0.0.1:8234/groups/status/heartbeat?secret=${process.env.SERVER_SECRET}`).json();
 }, 10000)
 
 let db = new SimpleDB();

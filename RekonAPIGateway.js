@@ -35,7 +35,7 @@ app.use('/docs', swaggerUI.serve, swaggerUI.setup(swaggerDocument));
 const server = createServer(app);
 const io = new Server(server);
 
-let LAST_HEARTBEATS = {'accounts': null, 'groups': null, 'storage': null}
+let LAST_HEARTBEATS = {'accounts': null, 'groups': null, 'storage': null, 'auth': null}
 
 const START_TIME = performance.now();
 
@@ -59,6 +59,7 @@ io.on('connection', (socket) => {
   console.log('socket connected');
 });
 
+// HTTP forwarding and delivery
 
 app.get('/', (req, res) => {
     res.send(`<!DOCTYPE html>
@@ -91,7 +92,7 @@ app.post('/accounts/registerUserAccount', async (req, res) => {
   const email = req.body.email;
   const password = req.body.password;
   console.log(email, password)
-  const json = await ky.post('http://127.0.0.1:8235/registerUserAccount', {json: {email: email, password: password}}).json();
+  const json = await ky.post('http://127.0.0.1:8235/registerUserAccount', {json: {email: email, password: password, secret: process.env.SERVER_SECRET}}).json();
   console.log(json)
   return res.json(json)
 });
@@ -100,14 +101,14 @@ app.post('/accounts/verifyEmailCode', async (req, res) => {
   const id = req.body.id;
   const code = req.body.code;
   const verify = req.body.verify;
-  const json = await ky.post('http://127.0.0.1:8235/verifyEmailCode', {json: {id: id, code: code, verify: verify}}).json();
+  const json = await ky.post('http://127.0.0.1:8235/verifyEmailCode', {json: {id: id, code: code, verify: verify, secret: process.env.SERVER_SECRET}}).json();
   console.log(json);
   return res.json(json);
 });
 
 app.get('/accounts/getAccountID' , async (req, res) => {
   const email = req.query.email;
-  const json = await ky.get(`http://127.0.0.1:8235/verifyEmailCode?email=${email}`).json();
+  const json = await ky.get(`http://127.0.0.1:8235/getAccountID?email=${email}&secret=${process.env.SERVER_SECRET}`).json();
   return res.json(json);
 });
 
@@ -115,17 +116,19 @@ app.post('/accounts/updateUsername', async (req, res) => {
   const accountID = req.body.account_id;
   const user_token = req.body.user_token;
   const new_username = req.body.new_username;
-  const json = await ky.post('http://127.0.0.1:8235/verifyEmailCode', {json: {account_id: accountID, user_token: user_token, new_username: new_username}}).json();
+  const json = await ky.post('http://127.0.0.1:8235/verifyEmailCode', {json: {account_id: accountID, user_token: user_token, new_username: new_username, secret: process.env.SERVER_SECRET}}).json();
   return res.json(json);
 });
 
 app.post('/accounts/loginUserAccount', async (req, res) => {
   const email = req.body.email;
   const password = req.body.password;
-  const json = await ky.post('http://127.0.0.1:8235/loginUserAccount', {json: {email: email, password: password}}).json();
+  const json = await ky.post('http://127.0.0.1:8235/loginUserAccount', {json: {email: email, password: password, secret: process.env.SERVER_SECRET}}).json();
   console.log(json);
   return res.json(json);
 })
+
+// public status endpoints
 
 app.get('/gateway/status', async (req, res) => {
   return res.json({'status': 'healthy', 'description': `The Rekon API Gateway has been online for ${formatDuration(performance.now() - START_TIME)}`})
@@ -161,8 +164,10 @@ app.get('/groups/status', async (req, res) => {
   }
 })
 
+// internal heartbeat endpoints, secured with a common secret.
+
 app.put('/accounts/status/heartbeat', async (req, res) => {
-  if (req.query.secret == process.env.HEARTBEAT_SECRET) {
+  if (req.query.secret == process.env.SERVER_SECRET) {
     LAST_HEARTBEATS.accounts = performance.now();
     res.json({'response': 'Hello account server!!'})
   } else {
@@ -171,7 +176,7 @@ app.put('/accounts/status/heartbeat', async (req, res) => {
 });
 
 app.put('/groups/status/heartbeat', async (req, res) => {
-  if (req.query.secret == process.env.HEARTBEAT_SECRET) {
+  if (req.query.secret == process.env.SERVER_SECRET) {
     LAST_HEARTBEATS.groups = performance.now();
     res.json({'response': 'Hello group server!!'})
   } else {
@@ -180,11 +185,27 @@ app.put('/groups/status/heartbeat', async (req, res) => {
 });
 
 app.put('/storage/status/heartbeat', async (req, res) => {
-  if (req.query.secret == process.env.HEARTBEAT_SECRET) {
+  if (req.query.secret == process.env.SERVER_SECRET) {
     LAST_HEARTBEATS.storage = performance.now();
     res.json({'response': 'Hello storage server!!'})
   } else {
     res.json({'response': "You're not the storage server >:("})
+  }
+});
+
+app.put('/auth/status/heartbeat', async (req, res) => {
+  if (req.query.secret == process.env.SERVER_SECRET) {
+    LAST_HEARTBEATS.auth = performance.now();
+    res.json({'response': 'Hello auth server!!'})
+  } else {
+    res.json({'response': "You're not the auth server >:("})
+  }
+});
+
+// internal api endpoints, only meant for communication between internal microservices
+app.post('/internal/auth/verifyToken', async (req, res) => {
+  if (req.body.secret != process.env.SERVER_SECRET) {
+    return res.json({'error': true, 'message': 'This is an internal endpoint. Client applications do not have permission to access this endpoint.', code: 'gateway-internal-endpoint'})
   }
 });
 

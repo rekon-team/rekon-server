@@ -30,7 +30,7 @@ process.on('uncaughtException', (err) => {
 });
 
 setInterval(async () => {
-    const gatewayResponse = await ky.put(`http://127.0.0.1:8234/accounts/status/heartbeat?secret=${process.env.HEARTBEAT_SECRET}`).json();
+    const gatewayResponse = await ky.put(`http://127.0.0.1:8234/accounts/status/heartbeat?secret=${process.env.SERVER_SECRET}`).json();
 }, 10000)
 
 let db = new SimpleDB();
@@ -52,6 +52,9 @@ for (const table of required_tables) {
 }
 
 app.get('/getAccountID', async (req, res) => {
+    if (req.query.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
     const email = req.query.email;
     const doesEmailExist = await db.checkIfValueExists('accounts', '*', 'email', email);
     if (!doesEmailExist) {
@@ -62,6 +65,9 @@ app.get('/getAccountID', async (req, res) => {
 });
 
 app.post('/updateUsername', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
     const accountID = req.body.account_id;
     const user_token = req.body.user_token;
     const new_username = req.body.new_username;
@@ -81,6 +87,9 @@ app.post('/updateUsername', async (req, res) => {
 })
 
 app.post('/registerUserAccount', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
     const email = req.body.email;
     const password = req.body.password;
     if (password.length < 8) {
@@ -118,6 +127,9 @@ app.post('/registerUserAccount', async (req, res) => {
 });
 
 app.post('/loginUserAccount', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
     const email = req.body.email;
     const password = req.body.password;
     const doesEmailExist = await db.checkIfValueExists('accounts', '*', 'email', email);
@@ -150,6 +162,9 @@ app.post('/loginUserAccount', async (req, res) => {
 });
 
 app.post('/verifyEmailCode', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
     const id = req.body.id;
     const code = req.body.code;
     const verify = req.body.verify;

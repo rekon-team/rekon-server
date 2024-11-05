@@ -25,7 +25,7 @@ process.on('uncaughtException', (err) => {
 });
 
 setInterval(async () => {
-    const gatewayResponse = await ky.put(`http://127.0.0.1:8234/storage/status/heartbeat?secret=${process.env.SERVER_SECRET}`).json();
+    const gatewayResponse = await ky.put(`http://127.0.0.1:8234/auth/status/heartbeat?secret=${process.env.SERVER_SECRET}`).json();
 }, 10000)
 
 let db = new SimpleDB();
@@ -41,25 +41,19 @@ for (const table of required_tables) {
     }
 }
 
-app.post('/getUploadToken', async (req, res) => {
+app.post('/verifyToken', async (req, res) => {
     if (req.body.secret != process.env.SERVER_SECRET) {
         return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
     }
-    const uploadLocation = req.body.type;
     const userToken = req.body.token;
-    let uploadToken;
-    if (uploadLocation == 'profile') {
-        uploadToken = `${tokenInfo.account_id}-profile`;
-    } else if (uploadLocation == 'userblock') {
-        uploadToken = `${tokenInfo.account_id}-${crypto.randomUUID()}-userblock`;
-    } else if (uploadLocation == 'groupblock') {
-        uploadToken = `unfinished-feature`;
-    } else {
-        return res.json({'error': true, 'message': 'Upload location invalid', 'code': 'store-location-invalid'});
+    const doesTokenExist = await db.checkIfValueExists('access_tokens', '*', 'user_token', userToken);
+    if (!doesTokenExist) {
+        return res.json({'error': true, 'message': 'User token does not exist.', 'code': 'token-invalid'});
     }
-    return res.json({'error': false, 'message': 'Upload token granted!', 'token': uploadToken});
+    const tokenInfo = await db.selectRow('access_tokens', '*', 'user_token', userToken);
+    return res.json({'error': false, 'valid': true, 'info': tokenInfo});
 });
 
-app.listen(8237, () => {
-    console.log(`Rekon storage server running at port 8237`);
+app.listen(8238, () => {
+    console.log(`Rekon auth server running at port 8238`);
 });

@@ -63,6 +63,10 @@ rl.on('line', (input) => {
 
     if (command === 'restart' && scripts.includes(script)) {
         restartChildProcess(script);
+    } else if (command === 'restart' && script == 'all') {
+        for (const scriptt of scripts) {
+            restartChildProcess(scriptt);
+        }
     } else if (command === 'exit') {
         terminateChildProcesses();
         process.exit();
