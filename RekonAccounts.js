@@ -4,10 +4,12 @@ import bcrypt from 'bcrypt';
 import { SimpleEmail } from './modules/RSimpleEmail.js'
 import { VerificationGen } from './modules/RVerification.js'
 import 'dotenv/config';
+import ky from 'ky';
 
-const required_tables = ['accounts', 'email_codes'];
-const table_params = {'accounts': 'user_token TEXT UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, username VARCHAR(60) UNIQUE NOT NULL, password TEXT NOT NULL, date_created TEXT NOT NULL, last_login_date TEXT NOT NULL, verified BOOLEAN NOT NULL, two_factor_approved BOOLEAN NOT NULL',
-'email_codes': 'user_token TEXT UNIQUE NOT NULL, email_code VARCHAR(6) NOT NULL, send_time TEXT NOT NULL'};
+const required_tables = ['accounts', 'email_codes', 'access_tokens'];
+const table_params = {'accounts': 'account_id TEXT UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, username VARCHAR(60) UNIQUE NOT NULL, password TEXT NOT NULL, date_created TEXT NOT NULL, last_login_date TEXT NOT NULL, verified BOOLEAN NOT NULL, two_factor_approved BOOLEAN NOT NULL',
+'email_codes': 'account_id TEXT UNIQUE NOT NULL, email_code VARCHAR(6) NOT NULL, send_time TEXT NOT NULL',
+'access_tokens': 'user_token TEXT UNIQUE NOT NULL, account_id TEXT UNIQUE NOT NULL, last_used TEXT NOT NULL'};
 
 let app = express();
 app.use(express.json());
@@ -16,6 +18,20 @@ app.use(
       extended: true,
     })
 );
+
+app.use((err, req, res, next) => {
+    // Handle the error here
+    console.error(err.stack);
+    res.status(500).send('Something broke!');
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+
+setInterval(async () => {
+    const gatewayResponse = await ky.put(`http://127.0.0.1:8234/accounts/status/heartbeat?secret=${process.env.HEARTBEAT_SECRET}`).json();
+}, 10000)
 
 let db = new SimpleDB();
 await db.init(process.env.DB_USER, process.env.DB_PASS, process.env.DB_NAME)
@@ -35,9 +51,38 @@ for (const table of required_tables) {
     }
 }
 
+app.get('/getAccountID', async (req, res) => {
+    const email = req.query.email;
+    const doesEmailExist = await db.checkIfValueExists('accounts', '*', 'email', email);
+    if (!doesEmailExist) {
+        return res.json({'error': true, 'message': 'The provided email is not registered with an account!', 'code': 'email-not-registered'});
+    }
+    const userData = db.selectRow('accounts', '*', 'email', email);
+    return res.json({'error': false, 'account_id': userData.account_id});
+});
+
+app.post('/updateUsername', async (req, res) => {
+    const accountID = req.body.account_id;
+    const user_token = req.body.user_token;
+    const new_username = req.body.new_username;
+
+    const doesAccountExist = await db.checkIfValueExists('accounts', '*', 'account_id', accountID);
+    if (!doesAccountExist) {
+        return res.json({'error': true, 'message': 'The provided account ID does not exist'});
+    }
+
+    const tokenDB = await db.selectRow('access_tokens', '*', 'account_id', accountID);
+    if (tokenDB.user_token != user_token) {
+        return res.json({'error': true, 'message': 'The provided user token is no longer valid.', 'code': 'token-invalid'});
+    }
+
+    await db.updateEntry('accounts', 'account_id', accountID, 'username', new_username);
+    return res.json({'error': false, 'message': 'Username updated successfully!'})
+})
+
 app.post('/registerUserAccount', async (req, res) => {
-    const email = req.body.email
-    const password = req.body.password
+    const email = req.body.email;
+    const password = req.body.password;
     if (password.length < 8) {
         return res.json({'error': true, 'message': 'Password too short'});
     }
@@ -47,6 +92,10 @@ app.post('/registerUserAccount', async (req, res) => {
     const userID = crypto.randomUUID();
     const currentDate = new Date(Date.now());
     const isoDate = currentDate.toISOString();
+    const doesEmailExist = await db.checkIfValueExists('accounts', '*', 'email', email);
+    if (doesEmailExist) {
+        return res.json({'error': true, 'message': 'The provided email is already in use!', 'code': 'ac-email-exists'});
+    }
     bcrypt.hash(password, 10, async (err, hash) => {
         try {
             const code = verify.generateCode();
@@ -58,10 +107,46 @@ app.post('/registerUserAccount', async (req, res) => {
             console.log(e)
             if (e.responseCode == 555) {
                 return res.json({'error': true, 'message': "Email invalid"});
+            } else if (e.code == 'EENVELOPE') {
+                return res.json({'error': true, 'message': 'Please use a valid email!'})
+            } else if (e.code == 23505) {
+                return res.json({'error': true, 'message': 'Email already in use!'})
             }
-            return res.json({'error': true, message: JSON.stringify(e)});
+            return res.json({'error': true, 'message': JSON.stringify(e)});
         }
     });
+});
+
+app.post('/loginUserAccount', async (req, res) => {
+    const email = req.body.email;
+    const password = req.body.password;
+    const doesEmailExist = await db.checkIfValueExists('accounts', '*', 'email', email);
+    if (!doesEmailExist) {
+        return res.json({'error': true, 'message': 'Email has not been registered', 'code': 'si-email-not-registered'})
+    }
+    const userInfo = await db.selectRow('accounts', '*', 'email', email);
+    const match = await bcrypt.compare(password, userInfo.password);
+    if (match) {
+        const userToken = crypto.randomUUID();
+        const currentDate = new Date(Date.now());
+        const isoDate = currentDate.toISOString();
+        const doesUserTokenExist = await db.checkIfValueExists('access_tokens', '*', 'account_id', userInfo.account_id);
+        if (!doesUserTokenExist) {
+            await db.addEntry('access_tokens', [userToken, userInfo.account_id, isoDate]);
+        }
+        await db.updateEntry('accounts', 'account_id', userInfo.account_id, 'last_login_date', isoDate);
+        if (userInfo.two_factor_approved) {
+            await db.updateEntry('accounts', 'account_id', userInfo.account_id, 'two_factor_approved', false);
+            return res.json({'error': false, 'message': 'You have been logged in!', 'token': userToken});
+        } else {
+            const code = verify.generateCode();
+            await db.addEntry('email_codes', [userInfo.account_id, code, isoDate]);
+            await mailer.sendMail(email, 'Verify your email address.', `Your login verification code is: ${code}. This will expire in 10 minutes. If you did not trigger this action, please ignore this email and reset your password.`, `Your login verification code is: <b>${code}</b>. The code will expire in 10 minutes. If you did not trigger this action, <b>please ignore this email and reset your password.</b>`);
+            return res.json({'error': false, 'message': 'Please check your email for a login code.', 'token': 'verify'})
+        }
+    } else {
+        return res.json({'error': true, 'message': 'Your email or password was incorrect.', 'token': null})
+    }
 });
 
 app.post('/verifyEmailCode', async (req, res) => {
@@ -71,8 +156,11 @@ app.post('/verifyEmailCode', async (req, res) => {
     let code_data;
     let account_data;
     try {
-        code_data = await db.selectRow('email_codes', '*', 'user_token', id);
+        code_data = await db.selectRow('email_codes', '*', 'account_id', id);
         console.log(code_data)
+        if (code_data == undefined) {
+            return res.json({'error': true, 'message': 'Account ID does not exist', 'verified': false})
+        }
     } catch (e) {
         return res.json({'error': true, 'message': e, 'verified': false})
     }
@@ -80,38 +168,61 @@ app.post('/verifyEmailCode', async (req, res) => {
     const current_time = new Date();
     const diff = current_time.getTime() - send_time.getTime();
     const minDiff = Math.floor(diff / (1000 * 60));
-    if (minDiff > 10) {
-        return res.json({'error': true, 'message': 'The code has expired', 'verified': false});
-    }
     if (code != code_data.email_code) {
         return res.json({'error': true, 'message': 'The code is incorrect', 'verified': false});
     }
+    if (minDiff > 10) {
+        await db.removeRow('email_codes', 'account_id', id);
+        return res.json({'error': true, 'message': 'The code has expired', 'verified': false});
+    }
     if (verify) {
         try {
-            account_data = await db.selectRow('accounts', '*', 'user_token', id);
+            account_data = await db.selectRow('accounts', '*', 'account_id', id);
         } catch (e) {
             return res.json({'error': true, 'message': e, 'verified': false});
         }
         if (!account_data.verified) {
             try {
-                await db.updateEntry('accounts', 'user_token', id, 'verified', true);
+                await db.updateEntry('accounts', 'account_id', id, 'verified', true);
             } catch (e) {
                 return res.json({'error': true, 'message': e, 'verified': false});
             }
         }
         if (!account_data.two_factor_approved) {
             try {
-                await db.updateEntry('accounts', 'user_token', id, 'two_factor_approved', true);
+                await db.updateEntry('accounts', 'account_id', id, 'two_factor_approved', true);
             } catch (e) {
                 return res.json({'error': true, 'message': e, 'verified': false});
             }
         }
         try {
-            await db.removeRow('email_codes', 'user_token', id);
+            await db.removeRow('email_codes', 'account_id', id);
         } catch (e) {
             return res.json({'error': true, 'message': e, 'verified': false});
         }
         return res.json({'error': false, 'message': 'Account verified', 'verified': true});
+    } else {
+        console.log('assuming login verify');
+        try {
+            account_data = await db.selectRow('accounts', '*', 'account_id', id);
+        } catch (e) {
+            return res.json({'error': true, 'message': e, 'verified': false});
+        }
+        if (!account_data.verified) {
+            return res.json({'error': true, 'message': 'Please verify your email first', 'verified': false});
+        } else {
+            const doesUserTokenExist = await db.checkIfValueExists('access_tokens', '*', 'account_id', id);
+            if (!doesUserTokenExist) {
+                return res.json({'error': true, 'message': 'Internal database error. Please try logging in again.'});
+            }
+            const userToken = await db.selectRow('access_tokens', '*', 'account_id', id);
+            try {
+                await db.removeRow('email_codes', 'account_id', id);
+            } catch (e) {
+                return res.json({'error': true, 'message': e, 'verified': false});
+            }
+            return res.json({'error': false, 'message': 'Verification successful, logging you in...', 'verified': true, 'token': userToken.user_token});
+        }
     }
 });
 

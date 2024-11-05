@@ -1,0 +1,258 @@
+openapi: 3.0.3
+info:
+  title: Rēkon API
+  description: The public Rekon API docs
+  version: 0.0.1
+
+servers:
+  - url: http://api.frcrekon.com/
+    description: Primary production server
+
+paths:
+  /gateway/status:
+    get:
+      summary: Returns the status of the API gateway server(s)
+      tags:
+        - Status Retrieval
+      responses:
+        '200':
+          description: A JSON dictionary with a status and description of the server state and uptime. The description is a human-readable format and meant to be displayed to users.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  descripton:
+                    type: string
+  /accounts/status:
+    get:
+      summary: Returns the status of the API account server(s)
+      tags:
+        - Status Retrieval
+      responses:
+        '200':
+          description: A JSON dictionary with a status and description of the server state and uptime. The description is a human-readable format and meant to be displayed to users.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  descripton:
+                    type: string
+  /accounts/registerUserAccount:
+    post:
+      summary: Creates a new user account with the provided information
+      tags:
+        - Account Services
+      requestBody:
+        description: New user information
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+                  description: Email for the new account
+                password:
+                  type: string
+                  example: password123
+                  description: Password for the new account
+      responses:
+        '200':
+          description: A JSON dictionary containing the relevant information depending on the response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: boolean
+                    example: false
+                    description: Was the result an error?
+                  message:
+                    type: string
+                    example: Account created successfully!
+                    description: A message meant to be displayed to the end user describing the result of the request
+                  id:
+                    type: string
+                    example: e54e5696-7fc0-495b-95c5-4a95b84cbebe
+                    description: A UUID-4 string representing the new user's public account ID
+                  code:
+                    type: string
+                    example: ac-email-exists
+                    description: A formatted code meant for parsing by the client software
+  /accounts/loginUserAccount:
+    post:
+      summary: Log in to a verified user account
+      tags:
+        - Account Services
+      requestBody:
+        description: Account information
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  example: user@example.com
+                  description: A verified email associated with a registered account
+                password:
+                  type: string
+                  example: password123
+                  description: The password associated with the target account
+      responses:
+        '200':
+          description: A JSON object containing any relevant information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: boolean
+                    example: false
+                    description: Was the result an error?
+                  message:
+                    type: string
+                    example: Verification successful, logging you in...
+                    description: A message meant to be displayed to the end user describing the result of the request
+                  token:
+                    type: string
+                    example: null OR 9bd3285f-a64a-423c-880f-77af083bea43 OR verify
+                    description: Null when an error occurs, "verify" when the user needs to verify, and a UUID-4 user token if 2fa was already verified
+  /accounts/verifyEmailCode:
+    post:
+      summary: Verifies a user's email or log-in session using the 2fa code sent to the user's email
+      tags:
+        - Account Services
+      requestBody:
+        description: Verification code and account information
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  example: e54e5696-7fc0-495b-95c5-4a95b84cbebe
+                  description: The UUID-4 string provided when creating your account, or by /accounts/getAccountID
+                code:
+                  type: string
+                  example: 482456
+                  description: The code provided in the email sent to the account owner
+                verify:
+                  type: boolean
+                  example: true
+                  description: Whether this request is to verify the email of a new account (true), or verify a log-in attempt from a new device (false)
+      responses:
+        '200':
+          description: A JSON dictionary containing the relevant information depending on the response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: boolean
+                    example: false
+                    description: Was the result an error?
+                  message:
+                    type: string
+                    example: Verification successful, logging you in...
+                    description: A message meant to be displayed to the end user describing the result of the request
+                  verified:
+                    type: boolean
+                    example: true
+                    description: Returns true if the code was correct and the account was successfully verified
+                  token:
+                    type: string
+                    example: 9bd3285f-a64a-423c-880f-77af083bea43
+                    description: A UUID-4 string provided on log-in when verify=false. This user token is required to perform most actions on the API.
+  /accounts/updateUsername:
+    post:
+      summary: Updates the username of the given account
+      tags:
+        - Account Services
+      requestBody:
+        description: Verification code and account information
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id:
+                  type: string
+                  example: e54e5696-7fc0-495b-95c5-4a95b84cbebe
+                  description: The UUID-4 string provided when creating your account, or by /accounts/getAccountID
+                user_token:
+                  type: string
+                  example: 9bd3285f-a64a-423c-880f-77af083bea43
+                  description: A UUID-4 user token associated with the account_id, provided upon login.
+                new_username:
+                  type: string
+                  example: User1234
+                  description: The new username for the given account
+      responses:
+        '200':
+          description: A JSON dictionary containing the relevant information depending on the response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: boolean
+                    example: false
+                    description: Was the result an error?
+                  message:
+                    type: string
+                    example: Username updated successfully!
+                    description: A message able to be displayed to the end user describing the result of the request
+                  code:
+                    type: string
+                    example: token-invalid
+                    description: Returns a computer-parsable error if the operation was an error
+  /accounts/getAccountID:
+    get:
+      summary: Retrieves the account ID associated with the given email
+      tags:
+        - Account Services
+      parameters:
+        - in: query
+          name: email
+          schema:
+            type: string
+          required: true
+          description: Email of the user to get an account ID for
+      responses:
+        '200':
+          description: A JSON object containing the request results, and an account ID if the request was a success.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: boolean
+                    example: false
+                    description: Whether the request resulted in an error
+                  message:
+                    type: string
+                    example: The provided email is not registered with an account!
+                    description: Additional information about the result of the operation.
+                  account_id:
+                    type: string
+                    example: A UUID-4 string representing a user account. Used for public operations, like requesting user data.

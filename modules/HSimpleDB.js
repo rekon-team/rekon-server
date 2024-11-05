@@ -19,6 +19,12 @@ class SimpleDB {
         const result = await this.client.query(query, [value]);
         return result.rows[0];
     }
+
+    async checkIfValueExists(table, columns, selector, value) {
+        const query = `SELECT ${columns} FROM ${table} WHERE ${selector} = $1;`;
+        const result = await this.client.query(query, [value]);
+        return result.rows[0] == undefined ? false : true;
+    }
     
     async removeRow(table, selector, value) {
         const query = `DELETE FROM ${table} WHERE ${selector} = $1;`;
