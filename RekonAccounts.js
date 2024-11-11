@@ -7,9 +7,9 @@ import 'dotenv/config';
 import ky from 'ky';
 
 const required_tables = ['accounts', 'email_codes', 'access_tokens'];
-const table_params = {'accounts': 'account_id TEXT UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, username VARCHAR(60) UNIQUE NOT NULL, password TEXT NOT NULL, date_created TEXT NOT NULL, last_login_date TEXT NOT NULL, verified BOOLEAN NOT NULL, two_factor_approved BOOLEAN NOT NULL',
-'email_codes': 'account_id TEXT UNIQUE NOT NULL, email_code VARCHAR(6) NOT NULL, send_time TEXT NOT NULL',
-'access_tokens': 'user_token TEXT UNIQUE NOT NULL, account_id TEXT UNIQUE NOT NULL, last_used TEXT NOT NULL'};
+const table_params = {'accounts': 'account_id VARCHAR(255) UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, username VARCHAR(60) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, date_created VARCHAR(255) NOT NULL, last_login_date VARCHAR(255) NOT NULL, verified BOOLEAN NOT NULL, two_factor_approved BOOLEAN NOT NULL',
+'email_codes': 'account_id VARCHAR(255) UNIQUE NOT NULL, email_code VARCHAR(6) NOT NULL, send_time VARCHAR(255) NOT NULL',
+'access_tokens': 'user_token VARCHAR(255) UNIQUE NOT NULL, account_id VARCHAR(255) UNIQUE NOT NULL, last_used VARCHAR(255) NOT NULL'};
 
 let app = express();
 app.use(express.json());

@@ -51,6 +51,9 @@ app.post('/verifyToken', async (req, res) => {
         return res.json({'error': true, 'message': 'User token does not exist.', 'code': 'token-invalid'});
     }
     const tokenInfo = await db.selectRow('access_tokens', '*', 'user_token', userToken);
+    const currentDate = new Date(Date.now());
+    const isoDate = currentDate.toISOString();
+    await db.updateEntry('access_tokens', 'user_token', userToken, 'last_used', isoDate);
     return res.json({'error': false, 'valid': true, 'info': tokenInfo});
 });
 

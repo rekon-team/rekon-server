@@ -207,6 +207,8 @@ app.post('/internal/auth/verifyToken', async (req, res) => {
   if (req.body.secret != process.env.SERVER_SECRET) {
     return res.json({'error': true, 'message': 'This is an internal endpoint. Client applications do not have permission to access this endpoint.', code: 'gateway-internal-endpoint'})
   }
+  const tokenInfo = await ky.post(`http://127.0.0.1:8238/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: req.body.token}}).json();
+  return res.json(tokenInfo);
 });
 
 server.listen(8234, () => {
