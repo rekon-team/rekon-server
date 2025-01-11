@@ -7,7 +7,7 @@ import 'dotenv/config';
 import ky from 'ky';
 
 const required_tables = ['accounts', 'email_codes', 'access_tokens'];
-const table_params = {'accounts': 'account_id VARCHAR(255) UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, username VARCHAR(60) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, date_created VARCHAR(255) NOT NULL, last_login_date VARCHAR(255) NOT NULL, verified BOOLEAN NOT NULL, two_factor_approved BOOLEAN NOT NULL',
+const table_params = {'accounts': 'account_id VARCHAR(255) UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, username VARCHAR(60) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, date_created VARCHAR(255) NOT NULL, last_login_date VARCHAR(255) NOT NULL, verified BOOLEAN NOT NULL, two_factor_approved BOOLEAN NOT NULL, bio VARCHAR(250) NOT NULL, team_number VARCHAR(10) NOT NULL',
 'email_codes': 'account_id VARCHAR(255) UNIQUE NOT NULL, email_code VARCHAR(6) NOT NULL, send_time VARCHAR(255) NOT NULL',
 'access_tokens': 'user_token VARCHAR(255) UNIQUE NOT NULL, account_id VARCHAR(255) UNIQUE NOT NULL, last_used VARCHAR(255) NOT NULL'};
 
@@ -109,7 +109,7 @@ app.post('/registerUserAccount', async (req, res) => {
         try {
             const code = verify.generateCode();
             await mailer.sendMail(email, 'Verify your email address.', `Your verification code is: ${code}. This will expire in 10 minutes. If you did not trigger this action, please ignore this email.`, `Your verification code is: <b>${code}</b>. The code will expire in 10 minutes. If you did not trigger this action, <b>please ignore this email.</b>`);
-            await db.addEntry('accounts', [userID, email, userID, hash, isoDate, isoDate, false, false]);
+            await db.addEntry('accounts', [userID, email, userID, hash, isoDate, isoDate, false, false, '', '']);
             await db.addEntry('email_codes', [userID, code, isoDate]);
             return res.json({'error': false, 'message': 'Account created successfully!', 'id': userID});
         } catch (e) {

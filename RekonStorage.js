@@ -148,12 +148,21 @@ app.post('/completeUpload', async (req, res) => {
     }
 
     const finalFilePath = path.join(fileChunkPath, `file${fileType}`);
-    for (const chunk of chunkFiles) {
+    const writeStream = createWriteStream(finalFilePath);
+    
+    // Sort chunks numerically to ensure correct order
+    const sortedChunks = chunkFiles.sort((a, b) => {
+        return parseInt(a.split('.')[0]) - parseInt(b.split('.')[0]);
+    });
+
+    for (const chunk of sortedChunks) {
         const base64Data = await fs.readFile(path.join(fileChunkPath, chunk), 'utf8');
         const binaryData = Buffer.from(base64Data, 'base64');
-        await fs.appendFile(finalFilePath, binaryData);
+        writeStream.write(binaryData);
         await fs.unlink(path.join(fileChunkPath, chunk));
     }
+    
+    await new Promise((resolve) => writeStream.end(resolve));
 
     await db.removeRow('upload_tokens', 'upload_token', uploadToken);
 
@@ -161,8 +170,12 @@ app.post('/completeUpload', async (req, res) => {
 });
 
 app.get('/getUploadedFile', async (req, res) => {
-    const { userToken } = req.body.userToken;
-    const { uploadToken } = req.body.uploadToken;
+    const secret = req.query.secret;
+    if (secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const userToken = req.body.userToken;
+    const uploadToken = req.body.uploadToken;
     const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: userToken}}).json();
     if (!tokenInfo.valid) {
         return res.json({'error': true, 'valid': false, 'message': 'User token is invalid.', 'code': 'token-invalid'});
@@ -171,6 +184,25 @@ app.get('/getUploadedFile', async (req, res) => {
     const file = await fs.readFile(fileChunkPath);
     return res.json({'error': false, 'valid': true, 'message': 'File retrieved successfully.', 'file': file});
 });
+
+app.get('/getProfilePicture', async (req, res) => {
+    const accountID = req.query.accountID;
+    const secret = req.query.secret;
+    if (secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const profilePicturePath = path.join(process.env.STORAGE_PATH, accountID, accountID + '-profile');
+    try {
+        const files = await fs.readdir(profilePicturePath);
+        if (files.length === 0) {
+            return res.send(null);
+        }
+        const profilePicture = await fs.readFile(path.join(profilePicturePath, files[0]));
+        return res.send(profilePicture);
+    } catch (err) {
+        return res.send(null);
+    }
+})
 
 app.listen(8237, () => {
     console.log(`Rekon storage server running at port 8237`);

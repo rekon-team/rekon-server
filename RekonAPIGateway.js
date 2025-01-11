@@ -162,6 +162,13 @@ app.get('/uploads/getUploadedFile', async (req, res) => {
   return res.json(json);
 });
 
+app.get('/uploads/getProfilePicture', async (req, res) => {
+  const accountID = req.query.accountID;
+  const image = await ky.get(`http://127.0.0.1:8237/getProfilePicture?accountID=${accountID}&secret=${process.env.SERVER_SECRET}`).arrayBuffer();
+  res.set('Content-Type', 'image/jpeg');
+  return res.send(Buffer.from(image));
+});
+
 // public status endpoints
 
 app.get('/gateway/status', async (req, res) => {
