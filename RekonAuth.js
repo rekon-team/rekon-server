@@ -43,12 +43,12 @@ for (const table of required_tables) {
 
 app.post('/verifyToken', async (req, res) => {
     if (req.body.secret != process.env.SERVER_SECRET) {
-        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+        return res.json({'error': true, 'valid': false, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
     }
     const userToken = req.body.token;
     const doesTokenExist = await db.checkIfValueExists('access_tokens', '*', 'user_token', userToken);
     if (!doesTokenExist) {
-        return res.json({'error': true, 'message': 'User token does not exist.', 'code': 'token-invalid'});
+        return res.json({'error': true, 'valid': false, 'message': 'User token does not exist.', 'code': 'token-invalid'});
     }
     const tokenInfo = await db.selectRow('access_tokens', '*', 'user_token', userToken);
     const currentDate = new Date(Date.now());

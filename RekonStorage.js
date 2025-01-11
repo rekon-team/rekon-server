@@ -8,11 +8,11 @@ import path from 'path';
 
 const required_tables = ['upload_tokens'];
 const table_params = {
-    'upload_tokens': 'upload_token VARCHAR(255) PRIMARY KEY, user_token VARCHAR(255), account_id VARCHAR(255)'
+    'upload_tokens': 'upload_token VARCHAR(255) PRIMARY KEY, user_token VARCHAR(255), account_id VARCHAR(255), num_chunks INT, file_type VARCHAR(255)'
 };
 
 let app = express();
-app.use(express.json());
+app.use(express.json({limit: '1mb'}));
 app.use(
     express.urlencoded({
       extended: true,
@@ -52,7 +52,13 @@ app.post('/getUploadToken', async (req, res) => {
     }
     const uploadLocation = req.body.type;
     const userToken = req.body.token;
+    const numChunks = req.body.numChunks;
+    const fileType = req.body.fileType;
+    console.log(req.body);
     const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: userToken}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'valid': false, 'message': 'User token is invalid.', 'code': 'token-invalid'});
+    }
     let uploadToken;
     if (uploadLocation == 'profile') {
         uploadToken = `${tokenInfo.info.account_id}-profile`;
@@ -63,62 +69,107 @@ app.post('/getUploadToken', async (req, res) => {
     } else {
         return res.json({'error': true, 'message': 'Upload location invalid', 'code': 'store-location-invalid'});
     }
-    await db.addEntry('upload_tokens', [uploadToken, userToken, tokenInfo.info.account_id]);
+    if (await db.checkIfValueExists('upload_tokens', '*', 'upload_token', uploadToken)) {
+        return res.json({'error': false, 'message': 'Upload token granted!', 'token': uploadToken});
+    }
+    await db.addEntry('upload_tokens', [uploadToken, userToken, tokenInfo.info.account_id, numChunks, fileType]);
     return res.json({'error': false, 'message': 'Upload token granted!', 'token': uploadToken});
 });
 
-app.post('/upload/:uploadToken', async (req, res) => {
-    const { uploadToken } = req.params;
+app.post('/uploadChunk', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const userToken = req.body.userToken;
+    const uploadToken = req.body.uploadToken;
+    const fileChunk = req.body.chunk;
+    const index = req.body.index;
+
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: userToken}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'valid': false, 'message': 'User token is invalid.', 'code': 'token-invalid'});
+    }
+    const tokenDB = await db.selectRow('upload_tokens', '*', 'upload_token', uploadToken);
+    if (!tokenDB) {
+        return res.json({'error': true, 'valid': false, 'message': 'Upload token is invalid.', 'code': 'token-invalid'});
+    }
+    if (tokenDB.user_token != userToken) {
+        return res.json({'error': true, 'valid': false, 'message': 'User token does not match upload token.', 'code': 'token-mismatch'});
+    }
+    const fileChunkPath = path.join(process.env.STORAGE_PATH, tokenDB.account_id, tokenDB.upload_token, `${index}.chunk`);
+    await fs.mkdir(path.dirname(fileChunkPath), { recursive: true });
+    await fs.writeFile(fileChunkPath, fileChunk);
+    return res.json({'error': false, 'valid': true, 'message': 'Chunk uploaded successfully.'});
+});
+
+app.post('/completeUpload', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const userToken = req.body.userToken;
+    const uploadToken = req.body.uploadToken;
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: userToken}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'valid': false, 'message': 'User token is invalid.', 'code': 'token-invalid'});
+    }
+    const tokenDB = await db.selectRow('upload_tokens', '*', 'upload_token', uploadToken);
+    if (!tokenDB) {
+        return res.json({'error': true, 'valid': false, 'message': 'Upload token is invalid.', 'code': 'token-invalid'});
+    }
+    const fileChunkPath = path.join(process.env.STORAGE_PATH, tokenDB.account_id, tokenDB.upload_token);
+    // merge chunks
+    const fileType = tokenDB.file_type;
+    const files = await fs.readdir(fileChunkPath);
+    const chunkFiles = files.filter(f => f.endsWith('.chunk'));
     
-    // Verify the upload token exists in database
-    const tokenExists = await db.query('SELECT * FROM upload_tokens WHERE upload_token = ?', [uploadToken]);
-    if (!tokenExists.length) {
-        return res.status(401).json({ error: true, message: 'Invalid upload token' });
+    if (chunkFiles.length !== tokenDB.num_chunks) {
+        // Delete all chunks if count doesn't match
+        console.log("Number of chunks: ", tokenDB.num_chunks);
+        console.log("Number of chunks uploaded: ", chunkFiles.length);
+        console.log("Chunk files: ", chunkFiles);
+        for (const chunk of chunkFiles) {
+            await fs.unlink(path.join(fileChunkPath, chunk));
+        }
+        return res.json({
+            'error': true, 
+            'message': 'Number of uploaded chunks does not match expected count', 
+            'code': 'chunk-count-mismatch'
+        });
     }
 
-    // Get total size from headers for progress tracking
-    const totalSize = parseInt(req.headers['content-length']);
-    let bytesReceived = 0;
+    // Delete existing file if it exists
+    const existingFile = path.join(fileChunkPath, `file${fileType}`);
+    try {
+        await fs.access(existingFile);
+        // File exists, delete it
+        await fs.unlink(existingFile);
+    } catch {
+        // File doesn't exist, continue
+    }
 
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = path.join(process.cwd(), 'uploads');
-    await fs.mkdir(uploadsDir, { recursive: true });
+    const finalFilePath = path.join(fileChunkPath, `file${fileType}`);
+    for (const chunk of chunkFiles) {
+        const base64Data = await fs.readFile(path.join(fileChunkPath, chunk), 'utf8');
+        const binaryData = Buffer.from(base64Data, 'base64');
+        await fs.appendFile(finalFilePath, binaryData);
+        await fs.unlink(path.join(fileChunkPath, chunk));
+    }
 
-    // Create write stream
-    const filePath = path.join(uploadsDir, uploadToken);
-    const writeStream = createWriteStream(filePath);
+    await db.removeRow('upload_tokens', 'upload_token', uploadToken);
 
-    // Handle incoming data chunks
-    req.on('data', (chunk) => {
-        bytesReceived += chunk.length;
-        // You could emit progress through WebSocket here if needed
-        // For now, progress will be estimated on the client side based on bytes sent
-        const progress = (bytesReceived / totalSize) * 100;
-    });
+    return res.json({'error': false, 'valid': true, 'message': 'Upload completed successfully.'});
+});
 
-    // Pipe the request to the file
-    // TODO: Check if this will work with cloud-based storage solutions like Backblaze B2
-    req.pipe(writeStream);
-
-    // Handle completion
-    writeStream.on('finish', () => {
-        res.json({ 
-            error: false, 
-            message: 'Upload completed successfully',
-            filePath: filePath
-        });
-    });
-
-    // Handle errors
-    writeStream.on('error', (error) => {
-        console.error('Write stream error:', error);
-        res.status(500).json({ error: true, message: 'Upload failed' });
-    });
-
-    req.on('error', (error) => {
-        console.error('Upload error:', error);
-        res.status(500).json({ error: true, message: 'Upload failed' });
-    });
+app.get('/getUploadedFile', async (req, res) => {
+    const { userToken } = req.body.userToken;
+    const { uploadToken } = req.body.uploadToken;
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: userToken}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'valid': false, 'message': 'User token is invalid.', 'code': 'token-invalid'});
+    }
+    const fileChunkPath = path.join(process.env.STORAGE_PATH, tokenInfo.account_id, uploadToken);
+    const file = await fs.readFile(fileChunkPath);
+    return res.json({'error': false, 'valid': true, 'message': 'File retrieved successfully.', 'file': file});
 });
 
 app.listen(8237, () => {

@@ -11,7 +11,7 @@ import { createServer } from 'node:http';
 const swaggerDocument = YAML.parse(fs.readFileSync('./swagger.yaml', 'utf8'));
 
 let app = express();
-app.use(express.json());
+app.use(express.json({limit: '1mb'}));
 app.use(
     express.urlencoded({
       extended: true,
@@ -126,7 +126,41 @@ app.post('/accounts/loginUserAccount', async (req, res) => {
   const json = await ky.post('http://127.0.0.1:8235/loginUserAccount', {json: {email: email, password: password, secret: process.env.SERVER_SECRET}}).json();
   console.log(json);
   return res.json(json);
-})
+});
+
+app.post('/uploads/getUploadToken', async (req, res) => {
+  const type = req.body.type;
+  const token = req.body.token;
+  const numChunks = req.body.numChunks;
+  const fileType = req.body.fileType;
+  const json = await ky.post('http://127.0.0.1:8237/getUploadToken', {json: {type: type, token: token, secret: process.env.SERVER_SECRET, numChunks: numChunks, fileType: fileType}}).json();
+  return res.json(json);
+});
+
+app.post('/uploads/completeUpload', async (req, res) => {
+  const userToken = req.body.userToken;
+  const uploadToken = req.body.uploadToken;
+  const numChunks = req.body.numChunks;
+  const fileType = req.body.fileType;
+  const json = await ky.post('http://127.0.0.1:8237/completeUpload', {json: {userToken: userToken, uploadToken: uploadToken, numChunks: numChunks, fileType: fileType, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
+
+app.post('/uploads/uploadChunk', async (req, res) => {
+  const userToken = req.body.userToken;
+  const uploadToken = req.body.uploadToken;
+  const chunk = req.body.chunk;
+  const index = req.body.index;
+  const json = await ky.post('http://127.0.0.1:8237/uploadChunk', {json: {userToken: userToken, uploadToken: uploadToken, chunk: chunk, index: index, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
+
+app.get('/uploads/getUploadedFile', async (req, res) => {
+  const userToken = req.body.userToken;
+  const uploadToken = req.body.uploadToken;
+  const json = await ky.post('http://127.0.0.1:8237/getUploadedFile', {json: {userToken: userToken, uploadToken: uploadToken, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
 
 // public status endpoints
 
