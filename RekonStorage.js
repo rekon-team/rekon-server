@@ -166,11 +166,17 @@ app.post('/completeUpload', async (req, res) => {
     
     await new Promise((resolve) => writeStream.end(resolve));
 
-    const image = sharp(finalFilePath).resize(100, 100, { fit: 'inside' })
-    const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true })
-    const binaryThumbHash = ThumbHash.rgbaToThumbHash(info.width, info.height, data)
-    // Convert the binary ThumbHash to base64 string for storage
-    const base64ThumbHash = Buffer.from(binaryThumbHash).toString('base64')
+    let base64ThumbHash;
+    try {
+        const image = sharp(finalFilePath).resize(100, 100, { fit: 'inside' })
+        const { data, info } = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+        const binaryThumbHash = ThumbHash.rgbaToThumbHash(info.width, info.height, data)
+        // Convert the binary ThumbHash to base64 string for storage
+        base64ThumbHash = Buffer.from(binaryThumbHash).toString('base64')
+    } catch (err) {
+        console.error('Error generating thumbnail hash:', err);
+        base64ThumbHash = null;
+    }
 
     await db.updateEntry('upload_tokens', 'upload_token', uploadToken, 'upload_complete', true);
     await db.updateEntry('upload_tokens', 'upload_token', uploadToken, 'thumb_hash', base64ThumbHash);
