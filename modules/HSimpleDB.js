@@ -20,6 +20,12 @@ class SimpleDB {
         return result.rows[0];
     }
 
+    async selectRows(table, columns, selector, value) {
+        const query = `SELECT ${columns} FROM ${table} WHERE ${selector} = $1;`;
+        const result = await this.client.query(query, [value]);
+        return result.rows;
+    }
+
     async checkIfValueExists(table, columns, selector, value) {
         const query = `SELECT ${columns} FROM ${table} WHERE ${selector} = $1;`;
         const result = await this.client.query(query, [value]);

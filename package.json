@@ -17,8 +17,10 @@
     "ky": "^1.2.4",
     "nodemailer": "^6.9.13",
     "pg": "^8.11.5",
+    "sharp": "^0.33.5",
     "socket.io": "^4.8.1",
     "swagger-ui-express": "^5.0.1",
+    "thumbhash": "^0.1.1",
     "yaml": "^2.5.1"
   }
 }

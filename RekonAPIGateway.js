@@ -156,10 +156,37 @@ app.post('/uploads/uploadChunk', async (req, res) => {
 });
 
 app.get('/uploads/getUploadedFile', async (req, res) => {
-  const userToken = req.body.userToken;
-  const uploadToken = req.body.uploadToken;
-  const json = await ky.post('http://127.0.0.1:8237/getUploadedFile', {json: {userToken: userToken, uploadToken: uploadToken, secret: process.env.SERVER_SECRET}}).json();
-  return res.json(json);
+  const userToken = req.query.userToken;
+  const uploadToken = req.query.uploadToken;
+  const json = await ky.get(`http://127.0.0.1:8237/getUploadedFile?userToken=${userToken}&uploadToken=${uploadToken}&secret=${process.env.SERVER_SECRET}`).json();
+  
+  // Map common file extensions to MIME types
+  const mimeTypes = {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'mp4': 'video/mp4',
+    'webm': 'video/webm',
+    'pdf': 'application/pdf',
+    'txt': 'text/plain'
+  };
+
+  // Get the file extension without the dot and convert to lowercase
+  const fileExt = json.fileType.replace('.', '').toLowerCase();
+  const mimeType = mimeTypes[fileExt] || 'application/octet-stream';
+  
+  console.log('File extension:', fileExt);
+  console.log('MIME type:', mimeType);
+  console.log('Content length:', json.file.length);
+  
+  res.set('Content-Type', mimeType);
+  // Also set Content-Length header
+  res.set('Content-Length', json.file.length);
+  // Add Content-Disposition header to suggest filename
+  res.set('Content-Disposition', `inline; filename="file.${fileExt}"`);
+  
+  return res.send(Buffer.from(json.file));
 });
 
 app.get('/uploads/getProfilePicture', async (req, res) => {
@@ -167,6 +194,20 @@ app.get('/uploads/getProfilePicture', async (req, res) => {
   const image = await ky.get(`http://127.0.0.1:8237/getProfilePicture?accountID=${accountID}&secret=${process.env.SERVER_SECRET}`).arrayBuffer();
   res.set('Content-Type', 'image/jpeg');
   return res.send(Buffer.from(image));
+});
+
+app.get('/uploads/getUserFiles', async (req, res) => {
+  const userToken = req.query.userToken;
+  console.log('getting files for user', userToken);
+  const json = await ky.get(`http://127.0.0.1:8237/getUserFiles?userToken=${userToken}&secret=${process.env.SERVER_SECRET}`).json();
+  return res.json(json);
+});
+
+app.post('/uploads/deleteFile', async (req, res) => {
+  const userToken = req.body.userToken;
+  const uploadToken = req.body.uploadToken;
+  const json = await ky.post('http://127.0.0.1:8237/deleteFile', {json: {userToken: userToken, uploadToken: uploadToken, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
 });
 
 // public status endpoints
