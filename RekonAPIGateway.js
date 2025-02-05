@@ -35,7 +35,7 @@ app.use('/docs', swaggerUI.serve, swaggerUI.setup(swaggerDocument));
 const server = createServer(app);
 const io = new Server(server);
 
-let LAST_HEARTBEATS = {'accounts': null, 'groups': null, 'storage': null, 'auth': null}
+let LAST_HEARTBEATS = {'accounts': null, 'groups': null, 'storage': null, 'auth': null, 'events': null}
 
 const START_TIME = performance.now();
 
@@ -113,10 +113,23 @@ app.get('/accounts/getAccountID' , async (req, res) => {
 });
 
 app.post('/accounts/updateUsername', async (req, res) => {
-  const accountID = req.body.account_id;
-  const user_token = req.body.user_token;
-  const new_username = req.body.new_username;
-  const json = await ky.post('http://127.0.0.1:8235/verifyEmailCode', {json: {account_id: accountID, user_token: user_token, new_username: new_username, secret: process.env.SERVER_SECRET}}).json();
+  const user_token = req.body.userToken;
+  const new_username = req.body.newUsername;
+  const json = await ky.post('http://127.0.0.1:8235/updateUsername', {json: {userToken: user_token, newUsername: new_username, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
+
+app.post('/accounts/updateTeamNumber', async (req, res) => {
+  const user_token = req.body.userToken;
+  const new_team_number = req.body.newTeamNumber;
+  const json = await ky.post('http://127.0.0.1:8235/updateTeamNumber', {json: {userToken: user_token, newTeamNumber: new_team_number, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
+
+app.post('/accounts/updateBio', async (req, res) => {
+  const user_token = req.body.userToken;
+  const new_bio = req.body.newBio;
+  const json = await ky.post('http://127.0.0.1:8235/updateBio', {json: {userToken: user_token, newBio: new_bio, secret: process.env.SERVER_SECRET}}).json();
   return res.json(json);
 });
 
@@ -125,6 +138,31 @@ app.post('/accounts/loginUserAccount', async (req, res) => {
   const password = req.body.password;
   const json = await ky.post('http://127.0.0.1:8235/loginUserAccount', {json: {email: email, password: password, secret: process.env.SERVER_SECRET}}).json();
   console.log(json);
+  return res.json(json);
+});
+
+app.post('/accounts/removeGroup', async (req, res) => {
+  const user_token = req.body.userToken;
+  const group_token = req.body.groupToken;
+  const json = await ky.post('http://127.0.0.1:8235/removeGroup', {json: {userToken: user_token, groupToken: group_token, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
+
+app.get('/accounts/getGroups', async (req, res) => {
+  const user_token = req.query.userToken;
+  const json = await ky.get(`http://127.0.0.1:8235/getGroups?userToken=${user_token}&secret=${process.env.SERVER_SECRET}`).json();
+  return res.json(json);
+});
+
+app.get('/accounts/getAccountData', async (req, res) => {
+  const account_id = req.query.account_id;
+  const json = await ky.get(`http://127.0.0.1:8235/getAccountData?account_id=${account_id}&secret=${process.env.SERVER_SECRET}`).json();
+  return res.json(json);
+});
+
+app.get('/accounts/getIDfromToken', async (req, res) => {
+  const user_token = req.query.userToken;
+  const json = await ky.get(`http://127.0.0.1:8235/getIDfromToken?userToken=${user_token}&secret=${process.env.SERVER_SECRET}`).json();
   return res.json(json);
 });
 
@@ -210,6 +248,21 @@ app.post('/uploads/deleteFile', async (req, res) => {
   return res.json(json);
 });
 
+app.post('/groups/createGroup', async (req, res) => {
+  const groupName = req.body.group_name;
+  const groupDescription = req.body.group_description;
+  const teamNumber = req.body.team_number;
+  const userToken = req.body.user_token;
+  const json = await ky.post('http://127.0.0.1:8236/createGroup', {json: {group_name: groupName, group_description: groupDescription, team_number: teamNumber, user_token: userToken, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
+
+app.get('/groups/groupInfo', async (req, res) => {
+  const groupID = req.query.groupID;
+  const json = await ky.get(`http://127.0.0.1:8236/groupInfo?groupID=${groupID}&secret=${process.env.SERVER_SECRET}`).json();
+  return res.json(json);
+});
+
 // public status endpoints
 
 app.get('/gateway/status', async (req, res) => {
@@ -284,6 +337,15 @@ app.put('/auth/status/heartbeat', async (req, res) => {
   }
 });
 
+app.put('/events/status/heartbeat', async (req, res) => {
+  if (req.query.secret == process.env.SERVER_SECRET) {
+    LAST_HEARTBEATS.events = performance.now();
+    res.json({'response': 'Hello events server!!'})
+  } else {
+    res.json({'response': "You're not the events server >:("})
+  }
+});
+
 // internal api endpoints, only meant for communication between internal microservices
 app.post('/internal/auth/verifyToken', async (req, res) => {
   if (req.body.secret != process.env.SERVER_SECRET) {
@@ -291,6 +353,16 @@ app.post('/internal/auth/verifyToken', async (req, res) => {
   }
   const tokenInfo = await ky.post(`http://127.0.0.1:8238/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: req.body.token}}).json();
   return res.json(tokenInfo);
+});
+
+app.post('/internal/accounts/addGroup', async (req, res) => {
+  if (req.body.secret != process.env.SERVER_SECRET) {
+    return res.json({'error': true, 'message': 'This is an internal endpoint. Client applications do not have permission to access this endpoint.', code: 'gateway-internal-endpoint'})
+  }
+  const user_token = req.body.userToken;
+  const group_token = req.body.groupToken;
+  const json = await ky.post('http://127.0.0.1:8235/addGroup', {json: {userToken: user_token, groupToken: group_token, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
 });
 
 server.listen(8234, () => {

@@ -72,7 +72,7 @@ app.post('/getUploadToken', async (req, res) => {
         return res.json({'error': true, 'message': 'Upload location invalid', 'code': 'store-location-invalid'});
     }
     if (await db.checkIfValueExists('upload_tokens', '*', 'upload_token', uploadToken)) {
-        return res.json({'error': false, 'message': 'Upload token granted!', 'token': uploadToken});
+        await db.removeRow('upload_tokens', 'upload_token', uploadToken);
     }
     await db.addEntry('upload_tokens', [uploadToken, userToken, tokenInfo.info.account_id, numChunks, fileType, null, false]);
     return res.json({'error': false, 'message': 'Upload token granted!', 'token': uploadToken});

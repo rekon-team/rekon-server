@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { application } from 'express';
 import { SimpleDB } from './modules/HSimpleDB.js';
 import bcrypt from 'bcrypt';
 import { SimpleEmail } from './modules/RSimpleEmail.js'
@@ -7,7 +7,7 @@ import 'dotenv/config';
 import ky from 'ky';
 
 const required_tables = ['accounts', 'email_codes', 'access_tokens'];
-const table_params = {'accounts': 'account_id VARCHAR(255) UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, username VARCHAR(60) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, date_created VARCHAR(255) NOT NULL, last_login_date VARCHAR(255) NOT NULL, verified BOOLEAN NOT NULL, two_factor_approved BOOLEAN NOT NULL, bio VARCHAR(250) NOT NULL, team_number VARCHAR(10) NOT NULL',
+const table_params = {'accounts': 'account_id VARCHAR(255) UNIQUE NOT NULL, email VARCHAR(100) UNIQUE NOT NULL, username VARCHAR(60) UNIQUE NOT NULL, password VARCHAR(255) NOT NULL, date_created VARCHAR(255) NOT NULL, last_login_date VARCHAR(255) NOT NULL, verified BOOLEAN NOT NULL, two_factor_approved BOOLEAN NOT NULL, bio VARCHAR(250) NOT NULL, team_number VARCHAR(10) NOT NULL, groups VARCHAR(255) [] NOT NULL',
 'email_codes': 'account_id VARCHAR(255) UNIQUE NOT NULL, email_code VARCHAR(6) NOT NULL, send_time VARCHAR(255) NOT NULL',
 'access_tokens': 'user_token VARCHAR(255) UNIQUE NOT NULL, account_id VARCHAR(255) UNIQUE NOT NULL, last_used VARCHAR(255) NOT NULL'};
 
@@ -64,27 +64,83 @@ app.get('/getAccountID', async (req, res) => {
     return res.json({'error': false, 'account_id': userData.account_id});
 });
 
+app.get('/getAccountData', async (req, res) => {
+    if (req.query.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const account_id = req.query.account_id;
+    const userData = await db.selectRow('accounts', '*', 'account_id', account_id);
+    return res.json({'error': false, 'accountData': userData});
+});
+
 app.post('/updateUsername', async (req, res) => {
     if (req.body.secret != process.env.SERVER_SECRET) {
         return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
     }
-    const accountID = req.body.account_id;
-    const user_token = req.body.user_token;
-    const new_username = req.body.new_username;
-
+    const user_token = req.body.userToken;
+    const new_username = req.body.newUsername;
+    if (new_username.length > 60) {
+        return res.json({'error': true, 'message': 'Username too long'});
+    }
+    
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: user_token}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'message': 'The provided user token is no longer valid.', 'code': 'token-invalid'});
+    }
+    const accountID = tokenInfo.info.account_id;
     const doesAccountExist = await db.checkIfValueExists('accounts', '*', 'account_id', accountID);
     if (!doesAccountExist) {
         return res.json({'error': true, 'message': 'The provided account ID does not exist'});
     }
 
-    const tokenDB = await db.selectRow('access_tokens', '*', 'account_id', accountID);
-    if (tokenDB.user_token != user_token) {
+    await db.updateEntry('accounts', 'account_id', tokenInfo.info.account_id, 'username', new_username);
+    return res.json({'error': false, 'message': 'Username updated successfully!'})
+});
+
+app.post('/updateTeamNumber', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const user_token = req.body.userToken;
+    const new_team_number = req.body.newTeamNumber;
+    console.log(new_team_number)
+    if (new_team_number.length > 10) {
+        return res.json({'error': true, 'message': 'Team number too long'});
+    }
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: user_token}}).json();
+    if (!tokenInfo.valid) {
         return res.json({'error': true, 'message': 'The provided user token is no longer valid.', 'code': 'token-invalid'});
     }
+    const accountID = tokenInfo.info.account_id;
+    const doesAccountExist = await db.checkIfValueExists('accounts', '*', 'account_id', accountID);
+    if (!doesAccountExist) {
+        return res.json({'error': true, 'message': 'The provided account ID does not exist'});
+    }
+    await db.updateEntry('accounts', 'account_id', accountID, 'team_number', new_team_number);
+    return res.json({'error': false, 'message': 'Team number updated successfully!'})
+});
 
-    await db.updateEntry('accounts', 'account_id', accountID, 'username', new_username);
-    return res.json({'error': false, 'message': 'Username updated successfully!'})
-})
+app.post('/updateBio', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const user_token = req.body.userToken;
+    const new_bio = req.body.newBio;
+    if (new_bio.length > 250) {
+        return res.json({'error': true, 'message': 'Bio too long'});
+    }
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: user_token}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'message': 'The provided user token is no longer valid.', 'code': 'token-invalid'});
+    }
+    const accountID = tokenInfo.info.account_id;
+    const doesAccountExist = await db.checkIfValueExists('accounts', '*', 'account_id', accountID);
+    if (!doesAccountExist) {
+        return res.json({'error': true, 'message': 'The provided account ID does not exist'});
+    }
+    await db.updateEntry('accounts', 'account_id', accountID, 'bio', new_bio);
+    return res.json({'error': false, 'message': 'Bio updated successfully!'})
+});
 
 app.post('/registerUserAccount', async (req, res) => {
     if (req.body.secret != process.env.SERVER_SECRET) {
@@ -109,7 +165,7 @@ app.post('/registerUserAccount', async (req, res) => {
         try {
             const code = verify.generateCode();
             await mailer.sendMail(email, 'Verify your email address.', `Your verification code is: ${code}. This will expire in 10 minutes. If you did not trigger this action, please ignore this email.`, `Your verification code is: <b>${code}</b>. The code will expire in 10 minutes. If you did not trigger this action, <b>please ignore this email.</b>`);
-            await db.addEntry('accounts', [userID, email, userID, hash, isoDate, isoDate, false, false, '', '']);
+            await db.addEntry('accounts', [userID, email, userID, hash, isoDate, isoDate, false, false, '', '', []]);
             await db.addEntry('email_codes', [userID, code, isoDate]);
             return res.json({'error': false, 'message': 'Account created successfully!', 'id': userID});
         } catch (e) {
@@ -159,6 +215,42 @@ app.post('/loginUserAccount', async (req, res) => {
     } else {
         return res.json({'error': true, 'message': 'Your email or password was incorrect.', 'token': null})
     }
+});
+
+app.post('/addGroup', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const user_token = req.body.userToken;
+    const group_token = req.body.groupToken;
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: user_token}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'message': 'The provided user token is no longer valid.', 'code': 'token-invalid'});
+    }
+    const accountID = tokenInfo.info.account_id;
+    const doesGroupExist = await db.checkIfValueExists('groups', '*', 'group_id', group_token);
+    if (!doesGroupExist) {
+        return res.json({'error': true, 'message': 'The provided group token does not exist.', 'code': 'group-not-found'});
+    }
+    const userInfo = await db.selectRow('accounts', '*', 'account_id', accountID);
+    await db.updateEntry('accounts', 'account_id', accountID, 'groups', [...userInfo.groups, group_token]);
+    return res.json({'error': false, 'message': 'Group added successfully!'})
+});
+
+app.post('/removeGroup', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const user_token = req.body.userToken;
+    const group_token = req.body.groupToken;
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: user_token}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'message': 'The provided user token is no longer valid.', 'code': 'token-invalid'});
+    }
+    const accountID = tokenInfo.info.account_id;
+    const userInfo = await db.selectRow('accounts', '*', 'account_id', accountID);
+    await db.updateEntry('accounts', 'account_id', accountID, 'groups', userInfo.groups.filter(group => group !== group_token));
+    return res.json({'error': false, 'message': 'Group removed successfully!'});
 });
 
 app.post('/verifyEmailCode', async (req, res) => {
@@ -239,6 +331,32 @@ app.post('/verifyEmailCode', async (req, res) => {
             return res.json({'error': false, 'message': 'Verification successful, logging you in...', 'verified': true, 'token': userToken.user_token});
         }
     }
+});
+
+app.get('/getGroups', async (req, res) => {
+    if (req.query.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const user_token = req.query.userToken;
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: user_token}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'message': 'The provided user token is no longer valid.', 'code': 'token-invalid'});
+    }
+    const accountID = tokenInfo.info.account_id;
+    const userInfo = await db.selectRow('accounts', '*', 'account_id', accountID);
+    return res.json({'error': false, 'message': 'Groups fetched successfully!', 'groups': userInfo.groups});
+});
+
+app.get('/getIDfromToken', async (req, res) => {
+    if (req.query.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const user_token = req.query.userToken;
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: user_token}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'message': 'The provided user token is no longer valid.', 'code': 'token-invalid'});
+    }
+    return res.json({'error': false, 'message': 'Account ID fetched successfully!', 'accountID': tokenInfo.info.account_id});
 });
 
 app.listen(8235, () => {

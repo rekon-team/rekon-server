@@ -57,6 +57,19 @@ app.post('/verifyToken', async (req, res) => {
     return res.json({'error': false, 'valid': true, 'info': tokenInfo});
 });
 
+app.post('/isGroupAdmin', async (req, res) => {
+    if (req.body.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'valid': false, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const groupID = req.body.groupID;
+    const userID = req.body.userID;
+    const groupInfo = await db.selectRow('groups', '*', 'group_id', groupID);
+    if (groupInfo.group_admins.includes(userID)) {
+        return res.json({'error': false, 'valid': true, 'message': 'User is a group admin.'});
+    }
+    return res.json({'error': false, 'valid': false, 'message': 'User is not a group admin.'});
+});
+
 app.listen(8238, () => {
     console.log(`Rekon auth server running at port 8238`);
 });
