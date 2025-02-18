@@ -2,10 +2,11 @@ import express from 'express';
 import { SimpleDB } from './modules/HSimpleDB.js';
 import 'dotenv/config';
 import ky from 'ky';
+import { VerificationGen } from './modules/RVerification.js';
 
-const required_tables = ['groups'];
+const required_tables = ['groups', 'pending_invites'];
 const table_params = {'groups': 'group_id VARCHAR(255) UNIQUE NOT NULL, group_name VARCHAR(255) UNIQUE NOT NULL, group_description VARCHAR(255) NOT NULL, group_owner VARCHAR(255) NOT NULL, group_members VARCHAR(255) [] NOT NULL, group_admins VARCHAR(255) [] NOT NULL, team_number VARCHAR(10) NOT NULL',
-    'pending_invites': 'group_id VARCHAR(255) NOT NULL, user_id VARCHAR(255) NOT NULL, secret VARCHAR(255) NOT NULL, expires_at VARCHAR(255) NOT NULL'
+    'pending_invites': 'group_id VARCHAR(255) NOT NULL, secret VARCHAR(255) NOT NULL, expires_at VARCHAR(255) NOT NULL'
 };
 
 let app = express();
@@ -82,21 +83,21 @@ app.post('/createInvite', async (req, res) => {
         return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
     }
     const groupID = req.body.groupID;
-    const userID = req.body.userID;
     const userToken = req.body.userToken;
     const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: userToken}}).json();
     if (!tokenInfo.valid) {
         return res.json({'error': true, 'valid': false, 'message': 'User token is invalid.', 'code': 'token-invalid'});
     }
     const accountID = tokenInfo.info.account_id;
-    const isGroupAdmin = await ky.post(`http://127.0.0.1:8234/auth/isGroupAdmin`, {json: {secret: process.env.SERVER_SECRET, groupID: groupID, userID: accountID}}).json();
+    const isGroupAdmin = await ky.post(`http://127.0.0.1:8234/internal/auth/isGroupAdmin`, {json: {secret: process.env.SERVER_SECRET, groupID: groupID, userID: accountID}}).json();
     if (!isGroupAdmin.valid) {
         return res.json({'error': true, 'valid': false, 'message': 'User is not a group admin. Only group admins can create invites.', 'code': 'user-not-admin'});
     }
     const secret = verify.generateSecret();
     const currentDate = new Date(Date.now());
-    const isoDate = currentDate.toISOString();
-    await db.addEntry('pending_invites', [groupID, userID, secret, isoDate]);
+    const expiresAt = new Date(currentDate.getTime() + 1000 * 60 * 60 * 24 * 7);
+    const expiresAtISO = expiresAt.toISOString();
+    await db.addEntry('pending_invites', [groupID, secret, expiresAtISO]);
     return res.json({'error': false, 'message': 'Invite created successfully!', 'secret': secret});
 });
 
@@ -104,14 +105,30 @@ app.post('/acceptInvite', async (req, res) => {
     if (req.body.secret != process.env.SERVER_SECRET) {
         return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
     }
-    const secret = req.body.secret;
+    const secret = req.body.inviteSecret;
+    const userToken = req.body.userToken;
+    const tokenInfo = await ky.post(`http://127.0.0.1:8234/internal/auth/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: userToken}}).json();
+    if (!tokenInfo.valid) {
+        return res.json({'error': true, 'valid': false, 'message': 'User token is invalid.', 'code': 'token-invalid'});
+    }
     const inviteInfo = await db.selectRow('pending_invites', '*', 'secret', secret);
     if (!inviteInfo) {
         return res.json({'error': true, 'message': 'The provided invite secret does not exist.', 'code': 'invite-not-found'});
     }
-    const groupInfo = await db.selectRow('groups', '*', 'group_id', inviteInfo.group_id);
-    await db.updateEntry('groups', 'group_id', inviteInfo.group_id, 'group_members', [...groupInfo.group_members, inviteInfo.user_id]);
-    await db.deleteEntry('pending_invites', 'secret', secret);
+    if (inviteInfo.expires_at < Date.now()) {
+        await db.removeRow('pending_invites', 'secret', secret);
+        return res.json({'error': true, 'message': 'The provided invite secret has expired.', 'code': 'invite-expired'});
+    }
+    let groupInfo = await db.selectRow('groups', '*', 'group_id', inviteInfo.group_id);
+    const addGroupResponse = await ky.post(`http://127.0.0.1:8234/internal/accounts/addGroup`, {json: {userToken: userToken, groupToken: inviteInfo.group_id, secret: process.env.SERVER_SECRET}}).json();
+    if (addGroupResponse.error) {
+        return res.json({'error': true, 'message': 'Failed to add group to user.', 'code': 'add-group-failed'});
+    }
+    if (!groupInfo.group_members.includes(tokenInfo.info.account_id)) {
+        await db.updateEntry('groups', 'group_id', inviteInfo.group_id, 'group_members', [...groupInfo.group_members, tokenInfo.info.account_id]);
+    }
+    await db.removeRow('pending_invites', 'secret', secret);
+    groupInfo = await db.selectRow('groups', '*', 'group_id', inviteInfo.group_id);
     return res.json({'error': false, 'message': 'Invite accepted successfully!', 'groupInfo': groupInfo});
 });
 

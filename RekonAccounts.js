@@ -70,7 +70,14 @@ app.get('/getAccountData', async (req, res) => {
     }
     const account_id = req.query.account_id;
     const userData = await db.selectRow('accounts', '*', 'account_id', account_id);
-    return res.json({'error': false, 'accountData': userData});
+    const userDataFiltered = {
+        account_id: userData.account_id,
+        username: userData.username,
+        bio: userData.bio,
+        team_number: userData.team_number,
+        groups: userData.groups
+    }
+    return res.json({'error': false, 'accountData': userDataFiltered});
 });
 
 app.post('/updateUsername', async (req, res) => {
@@ -140,6 +147,19 @@ app.post('/updateBio', async (req, res) => {
     }
     await db.updateEntry('accounts', 'account_id', accountID, 'bio', new_bio);
     return res.json({'error': false, 'message': 'Bio updated successfully!'})
+});
+
+app.get('/checkAccountExists', async (req, res) => {
+    if (req.query.secret != process.env.SERVER_SECRET) {
+        return res.json({'error': true, 'message': 'Please access this endpoint through the API gateway server.', 'code': 'ms-direct-access-disallowed'});
+    }
+    const accountID = req.query.accountID;
+    const doesAccountExist = await db.checkIfValueExists('accounts', '*', 'account_id', accountID);
+    if (doesAccountExist) {
+        return res.json({'error': false, 'message': 'Account exists!', 'exists': true});
+    } else {
+        return res.json({'error': true, 'message': 'Account does not exist!', 'exists': false});
+    }
 });
 
 app.post('/registerUserAccount', async (req, res) => {
@@ -233,6 +253,9 @@ app.post('/addGroup', async (req, res) => {
         return res.json({'error': true, 'message': 'The provided group token does not exist.', 'code': 'group-not-found'});
     }
     const userInfo = await db.selectRow('accounts', '*', 'account_id', accountID);
+    if (userInfo.groups.includes(group_token)) {
+        return res.json({'error': true, 'message': 'The provided group token is already in the user\'s groups.', 'code': 'group-already-in-user'});
+    }
     await db.updateEntry('accounts', 'account_id', accountID, 'groups', [...userInfo.groups, group_token]);
     return res.json({'error': false, 'message': 'Group added successfully!'})
 });
@@ -249,6 +272,9 @@ app.post('/removeGroup', async (req, res) => {
     }
     const accountID = tokenInfo.info.account_id;
     const userInfo = await db.selectRow('accounts', '*', 'account_id', accountID);
+    if (!userInfo.groups.includes(group_token)) {
+        return res.json({'error': true, 'message': 'The provided group token is not in the user\'s groups.', 'code': 'group-not-in-user'});
+    }
     await db.updateEntry('accounts', 'account_id', accountID, 'groups', userInfo.groups.filter(group => group !== group_token));
     return res.json({'error': false, 'message': 'Group removed successfully!'});
 });

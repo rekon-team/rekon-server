@@ -112,6 +112,12 @@ app.get('/accounts/getAccountID' , async (req, res) => {
   return res.json(json);
 });
 
+app.get('/accounts/checkAccountExists', async (req, res) => {
+  const accountID = req.query.accountID;
+  const json = await ky.get(`http://127.0.0.1:8235/checkAccountExists?accountID=${accountID}&secret=${process.env.SERVER_SECRET}`).json();
+  return res.json(json);
+});
+
 app.post('/accounts/updateUsername', async (req, res) => {
   const user_token = req.body.userToken;
   const new_username = req.body.newUsername;
@@ -263,6 +269,20 @@ app.get('/groups/groupInfo', async (req, res) => {
   return res.json(json);
 });
 
+app.post('/groups/createInvite', async (req, res) => {
+  const userToken = req.body.userToken;
+  const groupID = req.body.groupID;
+  const json = await ky.post('http://127.0.0.1:8236/createInvite', {json: {userToken: userToken, groupID: groupID, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
+
+app.post('/groups/acceptInvite', async (req, res) => {
+  const userToken = req.body.userToken;
+  const inviteSecret = req.body.inviteSecret;
+  const json = await ky.post('http://127.0.0.1:8236/acceptInvite', {json: {userToken: userToken, inviteSecret: inviteSecret, secret: process.env.SERVER_SECRET}}).json();
+  return res.json(json);
+});
+
 // public status endpoints
 
 app.get('/gateway/status', async (req, res) => {
@@ -353,6 +373,14 @@ app.post('/internal/auth/verifyToken', async (req, res) => {
   }
   const tokenInfo = await ky.post(`http://127.0.0.1:8238/verifyToken`, {json: {secret: process.env.SERVER_SECRET, token: req.body.token}}).json();
   return res.json(tokenInfo);
+});
+
+app.post('/internal/auth/isGroupAdmin', async (req, res) => {
+  if (req.body.secret != process.env.SERVER_SECRET) {
+    return res.json({'error': true, 'message': 'This is an internal endpoint. Client applications do not have permission to access this endpoint.', code: 'gateway-internal-endpoint'})
+  }
+  const json = await ky.post('http://127.0.0.1:8238/isGroupAdmin', {json: {secret: process.env.SERVER_SECRET, groupID: req.body.groupID, userID: req.body.userID}}).json();
+  return res.json(json);
 });
 
 app.post('/internal/accounts/addGroup', async (req, res) => {
