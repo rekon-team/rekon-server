@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import readline from 'readline';
 
 // Hardcoded array of script file names
-const scripts = ['RekonAPIGateway.js', 'RekonAccounts.js', 'RekonGroups.js', 'RekonGroups.js', 'RekonStorage.js', 'RekonAuth.js'];
+const scripts = ['RekonAPIGateway.js', 'RekonAccounts.js', 'RekonGroups.js', 'RekonGroups.js', 'RekonStorage.js', 'RekonAuth.js', 'RekonEvents.js'];
 
 // Object to keep track of child processes by script name
 const childProcesses = {};

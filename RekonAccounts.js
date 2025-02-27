@@ -57,10 +57,17 @@ app.get('/getAccountID', async (req, res) => {
     }
     const email = req.query.email;
     const doesEmailExist = await db.checkIfValueExists('accounts', '*', 'email', email);
+    let userData;
     if (!doesEmailExist) {
-        return res.json({'error': true, 'message': 'The provided email is not registered with an account!', 'code': 'email-not-registered'});
+        const doesUsernameExist = await db.checkIfValueExists('accounts', '*', 'username', email);
+        if (!doesUsernameExist) {
+            return res.json({'error': true, 'message': 'The provided email or username is not registered with an account!', 'code': 'email-not-registered'});
+        } else {
+            userData = await db.selectRow('accounts', '*', 'username', email);
+        }
+    } else {
+        userData = await db.selectRow('accounts', '*', 'email', email);
     }
-    const userData = db.selectRow('accounts', '*', 'email', email);
     return res.json({'error': false, 'account_id': userData.account_id});
 });
 
@@ -209,10 +216,17 @@ app.post('/loginUserAccount', async (req, res) => {
     const email = req.body.email;
     const password = req.body.password;
     const doesEmailExist = await db.checkIfValueExists('accounts', '*', 'email', email);
+    let userInfo;
     if (!doesEmailExist) {
-        return res.json({'error': true, 'message': 'Email has not been registered', 'code': 'si-email-not-registered'})
+        const doesUsernameExist = await db.checkIfValueExists('accounts', '*', 'username', email);
+        if (!doesUsernameExist) {
+            return res.json({'error': true, 'message': 'Email or username not found', 'code': 'si-email-not-registered'})
+        } else {
+            userInfo = await db.selectRow('accounts', '*', 'username', email);
+        }
+    } else {
+        userInfo = await db.selectRow('accounts', '*', 'email', email);
     }
-    const userInfo = await db.selectRow('accounts', '*', 'email', email);
     const match = await bcrypt.compare(password, userInfo.password);
     if (match) {
         const userToken = crypto.randomUUID();
@@ -228,8 +242,13 @@ app.post('/loginUserAccount', async (req, res) => {
             return res.json({'error': false, 'message': 'You have been logged in!', 'token': userToken});
         } else {
             const code = verify.generateCode();
-            await db.addEntry('email_codes', [userInfo.account_id, code, isoDate]);
-            await mailer.sendMail(email, 'Verify your email address.', `Your login verification code is: ${code}. This will expire in 10 minutes. If you did not trigger this action, please ignore this email and reset your password.`, `Your login verification code is: <b>${code}</b>. The code will expire in 10 minutes. If you did not trigger this action, <b>please ignore this email and reset your password.</b>`);
+            try {
+                await db.addEntry('email_codes', [userInfo.account_id, code, isoDate]);
+            } catch (e) {
+                await db.removeRow('email_codes', 'account_id', userInfo.account_id);
+                await db.addEntry('email_codes', [userInfo.account_id, code, isoDate]);
+            }
+            await mailer.sendMail(userInfo.email, 'Verify your email address.', `Your login verification code is: ${code}. This will expire in 10 minutes. If you did not trigger this action, please ignore this email and reset your password.`, `Your login verification code is: <b>${code}</b>. The code will expire in 10 minutes. If you did not trigger this action, <b>please ignore this email and reset your password.</b>`);
             return res.json({'error': false, 'message': 'Please check your email for a login code.', 'token': 'verify'})
         }
     } else {
